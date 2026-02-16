@@ -105,6 +105,72 @@ def format_ratio(val, decimals: int = 2) -> str:
         return "N/A"
 
 
+def recommendation_color(action: str) -> str:
+    """Return a hex color for a recommendation action."""
+    from core.recommendations import ACTION_COLORS
+    return ACTION_COLORS.get(action, "#8b949e")
+
+
+def format_rs_rank(rank) -> str:
+    """Format RS Rank for display with letter grade."""
+    if rank is None:
+        return "N/A"
+    try:
+        rank = int(rank)
+    except (ValueError, TypeError):
+        return "N/A"
+    if rank >= 90:
+        grade = "A+"
+    elif rank >= 80:
+        grade = "A"
+    elif rank >= 70:
+        grade = "B+"
+    elif rank >= 60:
+        grade = "B"
+    elif rank >= 50:
+        grade = "C+"
+    elif rank >= 40:
+        grade = "C"
+    elif rank >= 30:
+        grade = "D+"
+    elif rank >= 20:
+        grade = "D"
+    else:
+        grade = "F"
+    return f"{rank} ({grade})"
+
+
+def options_rating_color(rating: str) -> str:
+    """Return color for options rating badge."""
+    colors = {
+        "Excellent": "#00c853",
+        "Good": "#4caf50",
+        "Fair": "#ff9800",
+        "Poor": "#f44336",
+    }
+    return colors.get(rating, "#8b949e")
+
+
+def format_win_probability(prob) -> str:
+    """Format win probability for display."""
+    if prob is None:
+        return "N/A"
+    try:
+        return f"{float(prob) * 100:.0f}%"
+    except (ValueError, TypeError):
+        return "N/A"
+
+
+def format_expected_return(ret) -> str:
+    """Format expected return for display."""
+    if ret is None:
+        return "N/A"
+    try:
+        return f"{float(ret) * 100:+.1f}%"
+    except (ValueError, TypeError):
+        return "N/A"
+
+
 def colored_metric(label: str, value: str, color: str) -> str:
     """Return HTML for a colored metric display."""
     return (

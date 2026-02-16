@@ -71,3 +71,11 @@ INVESTMENT_THEMES = {
     "Cloud/SaaS": GOVERNMENT_THEMES["cloud_saas"]["symbols"],
     "Infrastructure": GOVERNMENT_THEMES["infrastructure"]["symbols"],
 }
+
+# Re-export sector watchlists and filter presets for convenience
+from config.watchlists import SECTOR_WATCHLISTS, FILTER_PRESETS, SECTOR_ETF_MAP, SECTOR_NAMES  # noqa: E402, F401
+
+# Combined themes: investment themes + sector watchlists
+ALL_THEME_NAMES = list(INVESTMENT_THEMES.keys()) + [
+    v["name"] for v in SECTOR_WATCHLISTS.values()
+]

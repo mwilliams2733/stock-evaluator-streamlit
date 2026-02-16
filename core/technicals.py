@@ -349,6 +349,9 @@ def calculate_all_technicals(df: pd.DataFrame) -> dict:
     momentum_5d = ((current_price - float(close.iloc[-6])) / float(close.iloc[-6]) * 100) if len(close) >= 6 else 0
     momentum_20d = ((current_price - float(close.iloc[-21])) / float(close.iloc[-21]) * 100) if len(close) >= 21 else 0
 
+    # Average daily move (for options IV estimation)
+    avg_daily_move = atr_value if atr_value else 0
+
     return {
         "price": current_price,
         "emas": {p: float(s.iloc[-1]) for p, s in emas.items() if pd.notna(s.iloc[-1])},
@@ -369,6 +372,7 @@ def calculate_all_technicals(df: pd.DataFrame) -> dict:
         "resistances": sr["resistances"],
         "momentum_5d": momentum_5d,
         "momentum_20d": momentum_20d,
+        "avg_daily_move": avg_daily_move,
         # Full series for charting
         "_ema_series": emas,
         "_rsi_series": rsi,

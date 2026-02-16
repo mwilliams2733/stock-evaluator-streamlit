@@ -1,4 +1,5 @@
 cache/
+data/user/
 __pycache__/
 *.pyc
 .env

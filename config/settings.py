@@ -98,6 +98,12 @@ SECTOR_ETFS = {
     "Communication Services": "XLC",
 }
 
+# --- Persistence ---
+PERSISTENCE_DIR = "data/user"
+
+# --- Government Data Cache ---
+GOV_API_CACHE_TTL = 3600  # 1 hour
+
 # --- Display ---
 APP_TITLE = "Dynamic Momentum Screener"
 APP_ICON = "📈"

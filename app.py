@@ -20,7 +20,15 @@ with col1:
 with col2:
     st.page_link("pages/2_📊_Research.py", label="Research Panel", icon="📊", use_container_width=True)
 with col3:
-    st.page_link("pages/4_⚙️_Settings.py", label="Settings", icon="⚙️", use_container_width=True)
+    st.page_link("pages/3_📈_Stock_Detail.py", label="Stock Detail", icon="📈", use_container_width=True)
+
+col4, col5, col6 = st.columns(3)
+with col4:
+    st.page_link("pages/5_💼_Portfolio.py", label="Portfolio Hub", icon="💼", use_container_width=True)
+with col5:
+    st.page_link("pages/6_🔬_Backtest.py", label="Backtester", icon="🔬", use_container_width=True)
+with col6:
+    st.page_link("pages/7_🔔_Alerts.py", label="Price Alerts", icon="🔔", use_container_width=True)
 
 st.divider()
 
@@ -30,14 +38,18 @@ with st.expander("How to Use This App"):
         """
 ### Getting Started
 1. Go to **Settings** in the sidebar and enter your **Polygon.io** and **Finnhub** API keys
-2. Run the **Scanner** to discover high-scoring momentum stocks
-3. Click any stock to open the full **Research Panel** with 8 analysis tabs
+2. Run the **Scanner** to discover high-scoring momentum stocks with filter presets
+3. Click any stock to open the full **Research Panel** with 9 analysis tabs
+4. Manage portfolios, run backtests, and set price alerts
 
 ### Pages
-- **Scanner** — Full market scan with EMA alignment, institutional flow, and pre-breakout detection
-- **Research** — 8-tab deep-dive: Overview, Fair Value, Chart, News, Fundamentals, Gov Opportunities, Growth, ETF
-- **Stock Detail** — Quick single-stock lookup with chart and scores
-- **Settings** — API keys, scoring weights, cache management
+- **Scanner** — Full market scan with filter presets, sector watchlists, EMA alignment, institutional flow, and recommendations
+- **Research** — 9-tab deep-dive: Overview, Fair Value, Chart, News, Fundamentals, Gov Opportunities, Growth, ETF, Options
+- **Stock Detail** — Quick single-stock lookup with chart, scores, and recommendation
+- **Settings** — API keys, scoring weights, cache management, learning engine stats
+- **Portfolio Hub** — 5-tab portfolio management: Overview, Holdings, ETF Breakdown, Forecast, Export
+- **Backtest** — Historical strategy validation across 110 stocks with factor analysis
+- **Alerts** — Price monitoring and alert system with fair value tracking
 
 ### Understanding the Scores
 
@@ -50,12 +62,18 @@ with st.expander("How to Use This App"):
 - **5-Day Momentum** (5%) — Short-term price trend
 - **RSI Quality** (5%) — RSI in healthy bullish zone
 
+**9-Level Recommendations** — STRONG BUY through SELL with win probability:
+- Based on score thresholds, EMA alignment, flow signals, and technical adjustments
+- Each level has calibrated win rates and expected returns
+
 **Moat Score (0-100)** — 8-factor economic moat:
 - Gross Margin (20%), ROE (15%), Revenue Growth (12%), Low Debt (13%)
 - Market Position (12%), FCF Quality (8%), Cash Conversion (10%), ROIC (10%)
 
 **Fair Value** — 5-model weighted average:
 - P/E Multiple, P/B Multiple, P/S Multiple, Simple DCF, EV/EBITDA
+
+**Options Analysis** — Rating (0-110) with IV estimation and strategy suggestions
 """
     )
 
@@ -73,3 +91,17 @@ if "scan_results" not in st.session_state:
 
 if "research_ticker" not in st.session_state:
     st.session_state["research_ticker"] = ""
+
+# Initialize persistence-related state
+if "portfolio_data" not in st.session_state:
+    st.session_state["portfolio_data"] = None
+
+if "backtest_results" not in st.session_state:
+    st.session_state["backtest_results"] = None
+
+if "alert_check_results" not in st.session_state:
+    st.session_state["alert_check_results"] = []
+
+# Ensure persistence directory exists on startup
+from data.persistence import _ensure_dir
+_ensure_dir()

@@ -1,4 +1,4 @@
-"""Research — 8-tab deep-dive analysis panel."""
+"""Research — 9-tab deep-dive analysis panel."""
 import datetime as dt
 
 import plotly.graph_objects as go
@@ -7,11 +7,14 @@ import streamlit as st
 from config.settings import APP_TITLE
 from config.themes import GOVERNMENT_THEMES, INVESTMENT_THEMES
 from core.scanner import analyze_single_stock
+from core.recommendations import generate_recommendation, calculate_win_probability, get_action_color
+from core.options_analysis import calculate_options_rating, estimate_iv, suggest_options_strategy, options_rating_color
 from data.polygon_client import PolygonData
 from data.finnhub_client import FinnhubData
 from utils.formatting import (
     format_price, format_pct, format_large_number, format_ratio,
     score_color, moat_color, confidence_color,
+    recommendation_color, format_win_probability, format_expected_return,
 )
 
 st.set_page_config(page_title=f"{APP_TITLE} - Research", layout="wide", page_icon="📊")
@@ -55,19 +58,51 @@ if not data or not data.get("price"):
     st.info("Enter a ticker symbol and click Analyze to begin.")
     st.stop()
 
+# --- Generate Recommendation ---
+technicals = data.get("technicals", {})
+overall = data.get("overall_score", {})
+inst = data.get("institutional_flow", {})
+breakout = data.get("breakout", {})
+
+stock_data_for_rec = {
+    "score": overall.get("score", 0),
+    "ema_score": technicals.get("ema_score", 0),
+    "rsi": technicals.get("rsi", 50),
+    "institutional_score": inst.get("score", 50),
+    "breakout_score": breakout.get("score", 0),
+    "momentum_5d": technicals.get("momentum_5d", 0),
+    "momentum_20d": technicals.get("momentum_20d", 0),
+    "bollinger_squeeze": technicals.get("bollinger_squeeze", False),
+    "price": data.get("price", 0),
+    "volume": data.get("company_details", {}).get("market_cap", 0),
+    "avg_daily_move": technicals.get("avg_daily_move", 0),
+    "atr": technicals.get("atr", 0),
+}
+rec = generate_recommendation(stock_data_for_rec)
+win_prob = calculate_win_probability(rec["action"], stock_data_for_rec)
+
 # ===== TABS =====
-tab_overview, tab_fair_value, tab_chart, tab_news, tab_fundamentals, tab_gov, tab_growth, tab_etf = st.tabs([
-    "Overview", "Fair Value", "Chart", "News", "Fundamentals", "Gov Opportunities", "Growth", "ETF Breakdown"
+tab_overview, tab_fair_value, tab_chart, tab_news, tab_fundamentals, tab_gov, tab_growth, tab_etf, tab_options = st.tabs([
+    "Overview", "Fair Value", "Chart", "News", "Fundamentals", "Gov Opportunities", "Growth", "ETF Breakdown", "Options"
 ])
 
 # ===== TAB 1: OVERVIEW =====
 with tab_overview:
     company = data.get("company_details", {})
-    overall = data.get("overall_score", {})
-    technicals = data.get("technicals", {})
     moat = data.get("moat", {})
-    inst = data.get("institutional_flow", {})
-    breakout = data.get("breakout", {})
+
+    # Recommendation badge
+    action_color = get_action_color(rec["action"])
+    st.markdown(
+        f'<div style="background:{action_color}22;border:1px solid {action_color};border-radius:8px;'
+        f'padding:12px 16px;margin-bottom:16px;display:inline-block">'
+        f'<span style="font-size:1.4em;font-weight:bold;color:{action_color}">{rec["action"]}</span>'
+        f' &nbsp; <span style="color:#aaa">Confidence: {rec["confidence"]}</span>'
+        f' &nbsp; <span style="color:#aaa">Win: {win_prob["win_probability"] * 100:.0f}%</span>'
+        f' &nbsp; <span style="color:#aaa">Exp Return: {win_prob["expected_return"] * 100:+.1f}%</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # Header metrics row
     m1, m2, m3, m4, m5 = st.columns(5)
@@ -89,6 +124,19 @@ with tab_overview:
         info_cols[1].metric("Employees", f"{company.get('total_employees', 'N/A'):,}" if company.get("total_employees") else "N/A")
         info_cols[2].metric("Inst. Flow", inst.get("signal", "N/A"))
         info_cols[3].metric("Breakout", breakout.get("pattern", "N/A"))
+
+    # Recommendation reasoning
+    if rec.get("reasoning"):
+        st.subheader("Recommendation Reasoning")
+        for reason in rec["reasoning"]:
+            st.markdown(f"- {reason}")
+
+    # Win probability adjustments
+    if win_prob.get("adjustments"):
+        with st.expander("Win Probability Adjustments"):
+            for adj in win_prob["adjustments"]:
+                direction = "+" if adj["value"] > 0 else ""
+                st.write(f"- {adj['label']}: {direction}{adj['value'] * 100:.1f}%")
 
     # Score breakdown
     st.subheader("Score Breakdown")
@@ -155,7 +203,6 @@ with tab_fair_value:
         with fv_col2:
             prem = fv["premium_discount_pct"]
             label = "Premium" if prem > 0 else "Discount"
-            color = "red" if prem > 10 else ("green" if prem < -10 else "orange")
             st.metric(f"{label} to Fair Value", f"{prem:+.1f}%")
 
         st.divider()
@@ -168,7 +215,6 @@ with tab_fair_value:
             st.caption(model["details"])
 
         # Premium/Discount gauge
-        import plotly.graph_objects as go
         fig = go.Figure(go.Indicator(
             mode="gauge+number",
             value=prem,
@@ -193,7 +239,6 @@ with tab_fair_value:
 with tab_chart:
     st.subheader(f"{data['ticker']} Price Chart")
 
-    # Get price data from aggregates (use last market day for free tier)
     from config.settings import last_market_day
     polygon = PolygonData(api_key)
     today = dt.date.today()
@@ -202,16 +247,13 @@ with tab_chart:
     df_price = polygon.get_aggregates(data["ticker"], from_date, market_day)
 
     if not df_price.empty:
-        # Chart options
         chart_col1, chart_col2 = st.columns(2)
         with chart_col1:
             show_emas = st.multiselect("EMA Overlays", [8, 21, 50, 200], default=[8, 21, 50])
         with chart_col2:
             show_volume = st.checkbox("Show Volume", value=True)
 
-        # Build candlestick chart
         fig = go.Figure()
-
         fig.add_trace(go.Candlestick(
             x=df_price["date"],
             open=df_price["open"],
@@ -221,7 +263,6 @@ with tab_chart:
             name="Price",
         ))
 
-        # Add EMAs
         ema_colors = {8: "#ff6b6b", 21: "#ffd93d", 50: "#6bcb77", 200: "#4d96ff"}
         for period in show_emas:
             ema = df_price["close"].ewm(span=period, adjust=False).mean()
@@ -242,7 +283,6 @@ with tab_chart:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Volume subplot
         if show_volume:
             colors = ["#00c853" if c >= o else "#f44336"
                       for c, o in zip(df_price["close"], df_price["open"])]
@@ -300,7 +340,6 @@ with tab_fundamentals:
     fh = data.get("finnhub_metrics", {})
 
     if fins or fh:
-        # Section 1: Fundamental Analysis
         st.markdown("#### Fundamental Analysis")
         f_cols = st.columns(3)
         f_cols[0].metric("P/E Ratio", format_ratio(fh.get("pe_ratio")))
@@ -317,7 +356,6 @@ with tab_fundamentals:
 
         st.divider()
 
-        # Section 2: Cash Flow & Profitability
         st.markdown("#### Cash Flow & Profitability")
         cf_cols = st.columns(3)
         cf_cols[0].metric("Operating Margin", format_pct(fins.get("operating_margin")))
@@ -334,7 +372,6 @@ with tab_fundamentals:
 
         st.divider()
 
-        # Section 3: Valuation Metrics
         st.markdown("#### Valuation Metrics")
         derived = data.get("derived_metrics", {})
         v_cols = st.columns(4)
@@ -343,7 +380,6 @@ with tab_fundamentals:
         v_cols[2].metric("Price/FCF", format_ratio(derived.get("price_to_fcf")))
         v_cols[3].metric("EV/EBITDA", format_ratio(derived.get("ev_ebitda")))
 
-        # Additional Finnhub metrics
         if fh:
             st.divider()
             st.markdown("#### Market Data")
@@ -372,16 +408,56 @@ with tab_gov:
                 st.markdown(f"### {theme['name']}")
                 st.caption(f"Search terms: {', '.join(theme.get('searchTerms', []))}")
                 st.caption(f"NAICS codes: {', '.join(theme.get('naicsCodes', []))}")
-
-                # Show peer stocks in this theme
                 peers = [s for s in theme["symbols"] if s != ticker_upper]
                 if peers:
                     st.markdown(f"**Peer stocks:** {', '.join(peers)}")
+
+        # Live government data
+        st.divider()
+        st.subheader("Live Government Data")
+        if st.button("Fetch Gov Data", key="fetch_gov_data"):
+            try:
+                from data.gov_data_client import search_gov_opportunities
+                for key, theme in matched_themes:
+                    with st.spinner(f"Searching {theme['name']} opportunities..."):
+                        gov_data = search_gov_opportunities(key)
+
+                    contracts = gov_data.get("contracts", [])
+                    documents = gov_data.get("documents", [])
+
+                    if contracts:
+                        st.markdown(f"#### USAspending Contracts ({len(contracts)})")
+                        for c in contracts[:5]:
+                            with st.container(border=True):
+                                st.write(f"**{c.get('recipient', 'Unknown')}**")
+                                st.caption(
+                                    f"Amount: ${c.get('amount', 0):,.0f} | "
+                                    f"Agency: {c.get('agency', 'N/A')} | "
+                                    f"Date: {c.get('date', 'N/A')}"
+                                )
+                                if c.get("description"):
+                                    st.caption(c["description"][:200])
+
+                    if documents:
+                        st.markdown(f"#### Federal Register ({len(documents)})")
+                        for d in documents[:5]:
+                            with st.container(border=True):
+                                title = d.get("title", "Untitled")
+                                url = d.get("url", "")
+                                if url:
+                                    st.markdown(f"**[{title}]({url})**")
+                                else:
+                                    st.write(f"**{title}**")
+                                st.caption(
+                                    f"Type: {d.get('type', 'N/A')} | "
+                                    f"Date: {d.get('date', 'N/A')}"
+                                )
+            except Exception as e:
+                st.warning(f"Could not fetch government data: {e}")
     else:
         st.info(f"{data['ticker']} is not currently mapped to any government spending theme. "
                 "This stock may still benefit from government spending — check sector exposure.")
 
-    # Show all themes for reference
     with st.expander("All Government Themes"):
         for key, theme in GOVERNMENT_THEMES.items():
             st.markdown(f"**{theme['name']}**: {', '.join(theme['symbols'][:8])}...")
@@ -391,6 +467,15 @@ with tab_gov:
 with tab_growth:
     st.subheader("Growth Analysis")
 
+    # Expected return from win probability
+    st.markdown("#### Expected Return Forecast")
+    exp_cols = st.columns(3)
+    exp_cols[0].metric("Win Probability", f"{win_prob['win_probability'] * 100:.0f}%")
+    exp_cols[1].metric("Expected Return", f"{win_prob['expected_return'] * 100:+.1f}%")
+    exp_cols[2].metric("Hold Period", f"{win_prob.get('hold_period', 45)} days")
+
+    st.divider()
+
     growth_score = data.get("growth_score")
     if growth_score is not None:
         st.metric("Growth Score", f"{growth_score}/100")
@@ -398,7 +483,6 @@ with tab_growth:
 
     st.divider()
 
-    # Momentum indicators
     st.markdown("#### Momentum Indicators")
     tech = data.get("technicals", {})
     mom_cols = st.columns(4)
@@ -409,22 +493,19 @@ with tab_growth:
 
     st.divider()
 
-    # Volume analysis
     st.markdown("#### Volume Analysis")
     vol_cols = st.columns(3)
     vol_cols[0].metric("Volume Ratio", f"{tech.get('volume_ratio', 1.0):.1f}x")
     vol_cols[1].metric("Bollinger Squeeze", "Yes" if tech.get("bollinger_squeeze") else "No")
     vol_cols[2].metric("MACD Histogram", f"{tech.get('macd_histogram', 0):.3f}" if tech.get("macd_histogram") else "N/A")
 
-    # Institutional flow details
-    inst = data.get("institutional_flow", {})
-    if inst.get("signals"):
+    inst_data = data.get("institutional_flow", {})
+    if inst_data.get("signals"):
         st.divider()
         st.markdown("#### Institutional Flow Signals")
-        for sig in inst["signals"]:
+        for sig in inst_data["signals"]:
             st.markdown(f"- {sig}")
 
-    # Insider activity
     insider = data.get("insider_activity", {})
     if insider and insider.get("recent_transactions"):
         st.divider()
@@ -445,7 +526,6 @@ with tab_etf:
 
     ticker_upper = data["ticker"].upper()
 
-    # Check which investment themes include this stock
     theme_memberships = []
     for theme_name, symbols in INVESTMENT_THEMES.items():
         if ticker_upper in symbols:
@@ -461,6 +541,15 @@ with tab_etf:
     else:
         st.info(f"{data['ticker']} is not currently in any tracked investment theme.")
 
+    # ETF Exposure from etf_holdings
+    from config.etf_holdings import get_etf_exposure
+    exposures = get_etf_exposure(ticker_upper)
+    if exposures:
+        st.divider()
+        st.markdown("#### ETF Holdings")
+        for exp in exposures:
+            st.write(f"**{exp['etf']}** ({exp['etf_name']}): {exp['weight']:.1f}% weight")
+
     # Sector ETF mapping
     from config.settings import SECTOR_ETFS
     company = data.get("company_details", {})
@@ -474,7 +563,6 @@ with tab_etf:
     for sector, etf in SECTOR_ETFS.items():
         st.markdown(f"- **{sector}**: {etf}")
 
-    # Options summary
     options = data.get("options_summary", {})
     if options and options.get("total", 0) > 0:
         st.divider()
@@ -484,3 +572,74 @@ with tab_etf:
         opt_cols[1].metric("Call Contracts", options.get("call_count", 0))
         opt_cols[2].metric("Put Contracts", options.get("put_count", 0))
         opt_cols[3].metric("Total Contracts", options.get("total", 0))
+
+
+# ===== TAB 9: OPTIONS ANALYSIS =====
+with tab_options:
+    st.subheader("Options Analysis")
+
+    opts_rating = calculate_options_rating(stock_data_for_rec)
+    iv_data = estimate_iv(
+        stock_data_for_rec.get("avg_daily_move", 0) or stock_data_for_rec.get("atr", 0),
+        data.get("price", 0),
+    )
+    strategy = suggest_options_strategy(stock_data_for_rec)
+
+    # Rating badge
+    rating = opts_rating.get("options_rating", "N/A")
+    rating_score = opts_rating.get("options_score", 0)
+    rating_color = options_rating_color(rating)
+    st.markdown(
+        f'<div style="background:{rating_color}22;border:1px solid {rating_color};border-radius:8px;'
+        f'padding:12px 16px;margin-bottom:16px;display:inline-block">'
+        f'<span style="font-size:1.2em;font-weight:bold;color:{rating_color}">Options: {rating}</span>'
+        f' &nbsp; <span style="color:#aaa">Score: {rating_score:.0f}/110</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    opt_m1, opt_m2, opt_m3 = st.columns(3)
+    opt_m1.metric("Options Score", f"{rating_score:.0f}/110")
+    opt_m2.metric("Est. IV", f"{iv_data.get('estimated_iv', 0):.1f}%", help=iv_data.get("iv_label", ""))
+    opt_m3.metric("IV Level", iv_data.get("iv_label", "N/A"))
+
+    st.divider()
+    st.subheader("Rating Breakdown")
+    for factor in opts_rating.get("factors", []):
+        pct = factor["score"] / factor["max"] if factor["max"] > 0 else 0
+        st.progress(min(1.0, pct), text=f"{factor['name']}: {factor['score']:.1f}/{factor['max']}")
+
+    st.divider()
+    st.subheader("Suggested Strategy")
+    with st.container(border=True):
+        st.markdown(f"### {strategy['name']}")
+        st.write(strategy.get("description", ""))
+        strat_cols = st.columns(4)
+        strat_cols[0].metric("DTE Range", strategy.get("dte_range", "N/A"))
+        strat_cols[1].metric("Conviction", strategy.get("conviction", "N/A"))
+        strat_cols[2].metric("Max Risk", strategy.get("max_risk", "N/A"))
+        strat_cols[3].metric("Target Return", strategy.get("target_return", "N/A"))
+        st.caption(strategy.get("rationale", ""))
+
+        if strategy.get("strikes"):
+            st.markdown("**Strikes:**")
+            for k, v in strategy["strikes"].items():
+                st.write(f"- {k.replace('_', ' ').title()}: {v}")
+
+    options_data = data.get("options_summary", {})
+    if options_data and options_data.get("total", 0) > 0:
+        st.divider()
+        st.subheader("Options Activity (Polygon)")
+        pc_cols = st.columns(4)
+        pc_cols[0].metric("Put/Call Ratio", format_ratio(options_data.get("put_call_ratio")))
+        pc_cols[1].metric("Call Contracts", options_data.get("call_count", 0))
+        pc_cols[2].metric("Put Contracts", options_data.get("put_count", 0))
+        pc_cols[3].metric("Total Contracts", options_data.get("total", 0))
+
+    if rec.get("option_strategy"):
+        st.divider()
+        st.subheader("Recommendation Option Play")
+        opt_strat = rec["option_strategy"]
+        st.write(f"**{opt_strat.get('type', '')}**")
+        st.write(f"Strike: {opt_strat.get('strike', 'N/A')}")
+        st.write(f"Expiry: {opt_strat.get('expiry', 'N/A')}")

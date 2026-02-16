@@ -7,7 +7,9 @@ import streamlit as st
 from config.settings import APP_TITLE
 from core.technicals import calculate_all_technicals
 from core.scoring import calculate_institutional_flow, calculate_breakout_score, calculate_overall_score
+from core.recommendations import generate_recommendation, calculate_win_probability, get_action_color
 from data.polygon_client import PolygonData
+from data.persistence import add_stock_to_portfolio, load_portfolios
 from utils.formatting import format_price, format_pct, score_color
 
 st.set_page_config(page_title=f"{APP_TITLE} - Stock Detail", layout="wide", page_icon="📈")
@@ -59,6 +61,32 @@ if analyze or ticker:
 
     price = technicals["price"]
 
+    # Generate recommendation
+    stock_data = {
+        "score": overall.get("score", 0),
+        "ema_score": technicals.get("ema_score", 0),
+        "rsi": technicals.get("rsi", 50),
+        "institutional_score": inst_flow.get("score", 50),
+        "breakout_score": breakout.get("score", 0),
+        "momentum_5d": technicals.get("momentum_5d", 0),
+        "momentum_20d": technicals.get("momentum_20d", 0),
+        "bollinger_squeeze": technicals.get("bollinger_squeeze", False),
+    }
+    rec = generate_recommendation(stock_data)
+    win_prob = calculate_win_probability(rec["action"], stock_data)
+
+    # --- Recommendation Badge ---
+    action_color = get_action_color(rec["action"])
+    st.markdown(
+        f'<div style="background:{action_color}22;border:1px solid {action_color};border-radius:8px;'
+        f'padding:10px 16px;margin-bottom:12px;display:inline-block">'
+        f'<span style="font-size:1.3em;font-weight:bold;color:{action_color}">{rec["action"]}</span>'
+        f' &nbsp; <span style="color:#aaa">{rec["confidence"]}</span>'
+        f' &nbsp; <span style="color:#aaa">Win: {win_prob["win_probability"] * 100:.0f}%</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     # --- Metrics Row ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Price", format_price(price))
@@ -67,6 +95,26 @@ if analyze or ticker:
     m4.metric("Breakout", breakout["score"])
     m5.metric("Inst. Flow", inst_flow["score"])
     m6.metric("RSI", f"{technicals.get('rsi', 0):.0f}" if technicals.get("rsi") else "N/A")
+
+    # --- Quick Actions ---
+    action_col1, action_col2, action_col3 = st.columns(3)
+    with action_col1:
+        portfolios = load_portfolios()
+        portfolio_opts = {pid: p["name"] for pid, p in portfolios.items()}
+        selected_port = st.selectbox(
+            "Add to Portfolio",
+            options=list(portfolio_opts.keys()),
+            format_func=lambda x: portfolio_opts[x],
+            key="detail_portfolio",
+        )
+    with action_col2:
+        if st.button("Add to Portfolio", type="secondary"):
+            add_stock_to_portfolio(selected_port, ticker, 0, price)
+            st.success(f"Added {ticker} to {portfolio_opts[selected_port]}")
+    with action_col3:
+        if st.button("Set Alert", type="secondary"):
+            st.session_state["alert_ticker_prefill"] = ticker
+            st.switch_page("pages/7_🔔_Alerts.py")
 
     st.divider()
 
@@ -123,6 +171,13 @@ if analyze or ticker:
     st.plotly_chart(fig_vol, use_container_width=True)
 
     st.divider()
+
+    # --- Recommendation Reasoning ---
+    if rec.get("reasoning"):
+        st.subheader("Recommendation Reasoning")
+        for reason in rec["reasoning"]:
+            st.markdown(f"- {reason}")
+        st.divider()
 
     # --- Technical Summary ---
     st.subheader("Technical Indicators")
