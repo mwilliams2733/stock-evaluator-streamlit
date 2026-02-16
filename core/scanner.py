@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from config import settings
+from config.settings import last_market_day
 from core.technicals import calculate_all_technicals
 from core.scoring import (
     calculate_institutional_flow,
@@ -55,15 +56,22 @@ def run_full_scan(
         progress_callback(0, total, f"Scanning {total} tickers...")
 
     # 2. Get recent grouped daily for quick volume/price filter
+    #    Use last completed market day (skips weekends/holidays)
     today = dt.date.today()
-    # Find most recent trading day
-    for days_back in range(0, 5):
-        check_date = (today - dt.timedelta(days=days_back)).isoformat()
-        grouped = polygon.get_grouped_daily(check_date)
-        if not grouped.empty:
-            break
-    else:
-        grouped = pd.DataFrame()
+    market_day = last_market_day()
+    grouped = pd.DataFrame()
+    try:
+        grouped = polygon.get_grouped_daily(market_day)
+    except Exception:
+        # Fallback: try a few more days back
+        for days_back in range(2, 7):
+            check_date = (today - dt.timedelta(days=days_back)).isoformat()
+            try:
+                grouped = polygon.get_grouped_daily(check_date)
+                if not grouped.empty:
+                    break
+            except Exception:
+                continue
 
     # Pre-filter by price and volume from grouped daily
     if not grouped.empty:
@@ -84,7 +92,7 @@ def run_full_scan(
 
     # 3. Analyze each candidate
     results = []
-    to_date = today.isoformat()
+    to_date = market_day
     from_date = (today - dt.timedelta(days=lookback + 50)).isoformat()
 
     for idx, ticker in enumerate(candidate_tickers):
@@ -193,8 +201,9 @@ def analyze_single_stock(ticker: str, polygon, finnhub=None) -> dict:
     )
 
     today = dt.date.today()
+    market_day = last_market_day()
     from_date = (today - dt.timedelta(days=250)).isoformat()
-    to_date = today.isoformat()
+    to_date = market_day
 
     result = {
         "ticker": ticker,

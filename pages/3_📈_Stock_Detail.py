@@ -38,9 +38,11 @@ if not ticker:
 if analyze or ticker:
     polygon = PolygonData(api_key)
 
+    from config.settings import last_market_day
     today = dt.date.today()
+    market_day = last_market_day()
     from_date = (today - dt.timedelta(days=200)).isoformat()
-    to_date = today.isoformat()
+    to_date = market_day  # Last completed trading day
 
     with st.spinner(f"Loading {ticker}..."):
         df = polygon.get_aggregates(ticker, from_date, to_date)

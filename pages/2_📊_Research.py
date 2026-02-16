@@ -193,11 +193,13 @@ with tab_fair_value:
 with tab_chart:
     st.subheader(f"{data['ticker']} Price Chart")
 
-    # Get price data from aggregates
+    # Get price data from aggregates (use last market day for free tier)
+    from config.settings import last_market_day
     polygon = PolygonData(api_key)
     today = dt.date.today()
+    market_day = last_market_day()
     from_date = (today - dt.timedelta(days=200)).isoformat()
-    df_price = polygon.get_aggregates(data["ticker"], from_date, today.isoformat())
+    df_price = polygon.get_aggregates(data["ticker"], from_date, market_day)
 
     if not df_price.empty:
         # Chart options

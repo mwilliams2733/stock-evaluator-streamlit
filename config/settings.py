@@ -107,6 +107,39 @@ SCANNER_API_DELAY = 0.15  # seconds between API calls during scan
 SCANNER_BATCH_SIZE = 50   # stocks processed per batch
 
 
+def last_market_day() -> str:
+    """Return the most recent completed US market trading day as YYYY-MM-DD.
+
+    Walks back from today, skipping weekends and major US holidays.
+    Always returns at least yesterday to avoid requesting intraday data
+    that the free Polygon tier cannot access.
+    """
+    import datetime as _dt
+
+    today = _dt.date.today()
+
+    # Major US market holidays (month, day) — fixed-date ones
+    _FIXED_HOLIDAYS = {
+        (1, 1),   # New Year's Day
+        (6, 19),  # Juneteenth
+        (7, 4),   # Independence Day
+        (12, 25), # Christmas Day
+    }
+
+    for days_back in range(1, 10):
+        candidate = today - _dt.timedelta(days=days_back)
+        # Skip weekends
+        if candidate.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            continue
+        # Skip known fixed holidays
+        if (candidate.month, candidate.day) in _FIXED_HOLIDAYS:
+            continue
+        return candidate.isoformat()
+
+    # Fallback: 5 days ago
+    return (today - _dt.timedelta(days=5)).isoformat()
+
+
 def get_sector_from_sic(sic_code: str | None) -> str:
     """Map SIC code to sector name for fair value calculations."""
     if not sic_code:
